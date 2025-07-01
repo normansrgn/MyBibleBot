@@ -86,33 +86,72 @@ function formatChapter(book, chapterNumber) {
 }
 
 function searchVerse(query) {
-  const regex = /^(\w+(?:\s+\w+)?)\s+(\d+)(?::(\d+))?$/i;
+  const regex = /^([\w\s]+)\s+(\d+)(?::(\d+)(?:-(\d+))?)?$/i;
   const match = query.match(regex);
-  if (!match) return null;
 
-  const [, bookName, chapterStr, verseStr] = match;
-  const chapter = parseInt(chapterStr, 10);
-  const verse = verseStr ? parseInt(verseStr, 10) : null;
+  if (match) {
+    const [, bookNameRaw, chapterStr, verseStr, verseEndStr] = match;
+    const bookName = bookNameRaw.trim();
+    const chapter = parseInt(chapterStr, 10);
+    const verse = verseStr ? parseInt(verseStr, 10) : null;
+    const verseEnd = verseEndStr ? parseInt(verseEndStr, 10) : null;
 
-  const book = bibleData.find(b => b.name.toLowerCase() === bookName.toLowerCase() || 
-    b.name.toLowerCase().startsWith(bookName.toLowerCase()));
-  if (!book) return null;
+    const book = bibleData.find(b =>
+      b.name.toLowerCase() === bookName.toLowerCase() ||
+      b.name.toLowerCase().startsWith(bookName.toLowerCase())
+    );
+    if (!book) return null;
 
-  const chapterIndex = chapter - 1;
-  if (!book.chapters[chapterIndex]) return null;
+    const chapterIndex = chapter - 1;
+    if (!book.chapters[chapterIndex]) return null;
 
-  if (verse) {
-    const verseIndex = verse - 1;
-    if (!book.chapters[chapterIndex][verseIndex]) return null;
-    return {
-      bookName: book.name,
-      chapter,
-      verse,
-      text: book.chapters[chapterIndex][verseIndex],
-    };
-  } else {
+    if (verse && verseEnd) {
+      const verses = book.chapters[chapterIndex].slice(verse - 1, verseEnd);
+      if (!verses.length) return null;
+      return {
+        bookName: book.name,
+        chapter,
+        verses: verses.map((text, i) => ({
+          verse: verse + i,
+          text
+        })),
+      };
+    }
+
+    if (verse) {
+      const verseIndex = verse - 1;
+      if (!book.chapters[chapterIndex][verseIndex]) return null;
+      return {
+        bookName: book.name,
+        chapter,
+        verse,
+        text: book.chapters[chapterIndex][verseIndex],
+      };
+    }
+
     return { book, chapter };
   }
+
+  const results = [];
+  for (const book of bibleData) {
+    for (let i = 0; i < book.chapters.length; i++) {
+      const chapter = book.chapters[i];
+      for (let j = 0; j < chapter.length; j++) {
+        const verseText = chapter[j];
+        if (verseText.toLowerCase().includes(query.toLowerCase())) {
+          results.push({
+            bookName: book.name,
+            chapter: i + 1,
+            verse: j + 1,
+            text: verseText,
+          });
+          if (results.length >= 5) return results;
+        }
+      }
+    }
+  }
+
+  return results.length ? results : null;
 }
 
 function getBooksInlineKeyboard(books) {
@@ -145,15 +184,16 @@ function getChaptersInlineKeyboard(bookName) {
 }
 
 function getStartMessage() {
-  return (
-    '✨ *Добро пожаловать в Библейский бот!* ✨\n\n' +
-    '📜 *В начале было Слово...* (Иоанна 1:1)\n\n' +
-    'Этот бот поможет вам:\n' +
-    '🙏 Получать вдохновляющие стихи из Библии\n' +
-    '📖 Читать Священное Писание по книгам и главам\n' +
-    '🔍 Искать стихи по книге, главе и стиху\n\n' +
-    '*Выберите действие ниже, чтобы начать:*'
-  );
+  return `🌿 Добро пожаловать, ищущий света! 🌿
+
+📜 “Слово Твое — светильник ноге моей и свет стезе моей.” (Псалтирь 118:105)
+
+Этот бот — ваш спутник в путешествии по Священному Писанию. Здесь вы можете:
+🌟 Находить вдохновение в случайных стихах
+📜 Погружаться в чтение Библии по главам
+🔍 Искать конкретные стихи, чтобы прикоснуться к Божьему Слову
+
+Пусть ваше сердце наполнится миром! Выберите действие ниже:`;
 }
 
 bot.onText(/\/start/, async msg => {
@@ -174,7 +214,12 @@ bot.onText(/\/search/, async msg => {
   try {
     await bot.sendMessage(
       chatId,
-      '🔍 Введите запрос для поиска (например, "Иоанна 3:16" или "Бытие 1")',
+      `🔍 *Поиск по Библии*\n
+Введите ваш запрос одним из следующих способов:
+• Укажите название книги и номер главы или стиха (например, _Иоанна 3:16_ или _Бытие 1_)
+• Или напишите ключевые слова из нужного стиха (например, _возлюби ближнего_)
+
+_Вы получите до 5 наиболее подходящих результатов._`,
       {
         parse_mode: 'Markdown',
         ...mainReplyKeyboard,
@@ -205,7 +250,12 @@ bot.on('message', async msg => {
     } else if (text === '🔍 Поиск') {
       await bot.sendMessage(
         chatId,
-        '🔍 Введите запрос для поиска (например, "Иоанна 3:16" или "Бытие 1")',
+        `🔍 *Поиск по Библии*\n
+Введите ваш запрос одним из следующих способов:
+• Укажите название книги и номер главы или стиха (например, _Иоанна 3:16_ или _Бытие 1_)
+• Или напишите ключевые слова из нужного стиха (например, _возлюби ближнего_)
+
+_Вы получите до 5 наиболее подходящих результатов._`,
         {
           parse_mode: 'Markdown',
           ...mainReplyKeyboard,
@@ -231,7 +281,21 @@ bot.on('message', async msg => {
     } else {
       const result = searchVerse(text);
       if (result) {
-        if (result.verse) {
+        if (Array.isArray(result)) {
+          for (const verse of result) {
+            await bot.sendMessage(chatId, formatVerse(verse), {
+              parse_mode: 'Markdown',
+              ...mainReplyKeyboard,
+            });
+          }
+        } else if (result.verses) {
+          const versesText = result.verses.map(v => `${v.verse}. ${v.text}`).join('\n');
+          const message = `📖 *${result.bookName}* ${result.chapter}:${result.verses[0].verse}-${result.verses[result.verses.length - 1].verse}\n\n_${versesText}_`;
+          await bot.sendMessage(chatId, message, {
+            parse_mode: 'Markdown',
+            ...mainReplyKeyboard,
+          });
+        } else if (result.verse) {
           await bot.sendMessage(chatId, formatVerse(result), {
             parse_mode: 'Markdown',
             ...mainReplyKeyboard,
@@ -246,7 +310,7 @@ bot.on('message', async msg => {
       } else if (!['/start', '/search'].includes(text)) {
         await bot.sendMessage(
           chatId,
-          '❌ Неверный формат или данные не найдены. Используйте, например, "Иоанна 3:16" или "Бытие 1".',
+          '❌ Ничего не найдено. Введите, например, "Иоанна 3:16", "Бытие 1" или просто слово/фразу из стиха.',
           {
             parse_mode: 'Markdown',
             ...mainReplyKeyboard,
@@ -291,6 +355,7 @@ bot.on('callback_query', async query => {
       const book = bibleData[bookIndex];
 
       if (chapterNumber > book.chapters.length) {
+        // Переход за пределы книги (следующая книга или конец)
         if (bookIndex + 1 < bibleData.length) {
           const nextBook = bibleData[bookIndex + 1];
           const keyboard = getChaptersInlineKeyboard(nextBook.name);
@@ -323,17 +388,30 @@ bot.on('callback_query', async query => {
       }
 
       const chapterText = formatChapter(book, chapterNumber);
+      // Кнопки перехода по главам
+      const hasPrevChapter = chapterNumber > 1;
       const hasNextChapter = chapterNumber < book.chapters.length;
-      const keyboard = [
-        [{ text: '⬅️ Назад к главам', callback_data: `book_${bookName}` }],
-        [{ text: '⬅️ Назад к книгам', callback_data: 'back_to_books' }],
-      ];
+      let prevChapterButton = hasPrevChapter
+        ? { text: '⬅️ Предыдущая глава', callback_data: `chapter_${bookName}_${chapterNumber - 1}` }
+        : null;
+      let nextChapterButton = hasNextChapter
+        ? { text: '➡️ Следующая глава', callback_data: `chapter_${bookName}_${chapterNumber + 1}` }
+        : null;
+      // Клавиатура: первая строка - кнопки глав (если есть)
+      const navRow = [];
+      if (prevChapterButton) navRow.push(prevChapterButton);
+      if (nextChapterButton) navRow.push(nextChapterButton);
+      const keyboard = [];
+      if (navRow.length > 0) keyboard.push(navRow);
+      keyboard.push([{ text: '⬅️ Назад к главам', callback_data: `book_${bookName}` }]);
+      keyboard.push([{ text: '⬅️ Назад к книгам', callback_data: 'back_to_books' }]);
 
-      if (hasNextChapter) {
-        keyboard.unshift([{ text: '➡️ Следующая глава', callback_data: `chapter_${bookName}_${chapterNumber + 1}` }]);
-      } else if (bookIndex + 1 < bibleData.length) {
+      // Если это последняя глава книги, добавить кнопку перехода к следующей книге
+      if (!hasNextChapter && bookIndex + 1 < bibleData.length) {
         const nextBook = bibleData[bookIndex + 1];
-        keyboard.unshift([{ text: `➡️ Перейти к следующей книге: ${nextBook.name}`, callback_data: `book_${nextBook.name}` }]);
+        keyboard.push([
+          { text: `➡️ Перейти к следующей книге: ${nextBook.name}`, callback_data: `book_${nextBook.name}` },
+        ]);
       }
 
       await bot.editMessageText(chapterText, {

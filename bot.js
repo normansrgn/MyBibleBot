@@ -89,7 +89,6 @@ function normalizeBookName(name) {
   return name.toLowerCase().replace(/\s+/g, '');
 }
 
-// Вычисляем расстояние Левенштейна
 function levenshtein(a, b) {
   const m = a.length;
   const n = b.length;
@@ -100,16 +99,15 @@ function levenshtein(a, b) {
     for (let j = 1; j <= n; j++) {
       const cost = a[i - 1] === b[j - 1] ? 0 : 1;
       dp[i][j] = Math.min(
-        dp[i - 1][j] + 1,      // удаление
-        dp[i][j - 1] + 1,      // вставка
-        dp[i - 1][j - 1] + cost // замена
+        dp[i - 1][j] + 1,      
+        dp[i][j - 1] + 1,      
+        dp[i - 1][j - 1] + cost 
       );
     }
   }
   return dp[m][n];
 }
 
-// Ищем наиболее похожее название книги
 function findClosestBookName(inputName) {
   const normalizedInput = normalizeBookName(inputName);
   let closestBook = null;
@@ -124,7 +122,6 @@ function findClosestBookName(inputName) {
     }
   }
 
-  // Условие: если расхождение не слишком большое
   return minDistance <= 5 ? closestBook : null;
 }
 
@@ -144,7 +141,6 @@ function searchVerse(query) {
         normalizeBookName(b.name).startsWith(normalizeBookName(bookNameRaw))
     );
 
-    // Если точного совпадения нет — ищем наиболее близкое
     if (!book) {
       book = findClosestBookName(bookNameRaw);
     }
@@ -186,7 +182,6 @@ function searchVerse(query) {
     };
   }
 
-  // Поиск по ключевым словам
   const results = [];
   for (const book of bibleData) {
     for (let i = 0; i < book.chapters.length; i++) {
@@ -210,7 +205,7 @@ function searchVerse(query) {
 }
 
 function searchVerse(query) {
-  // Разрешаем цифру в начале, пробелы, затем кириллицу
+
   const regex = /^(\d?\s*[а-яА-ЯёЁ\s]+)\s+(\d+)(?::(\d+)(?:-(\d+))?)?$/i;
   const match = query.match(regex);
 
@@ -221,7 +216,6 @@ function searchVerse(query) {
     const verse = verseStr ? parseInt(verseStr, 10) : null;
     const verseEnd = verseEndStr ? parseInt(verseEndStr, 10) : null;
 
-    // Ищем книгу с нормализацией для сравнения
     const book = bibleData.find(b => normalizeBookName(b.name) === bookName || normalizeBookName(b.name).startsWith(bookName));
 
     if (!book) return null;
@@ -255,14 +249,12 @@ function searchVerse(query) {
       };
     }
 
-    // Только глава
     return {
       book: book,
       chapter: chapter,
     };
   }
 
-  // Поиск по ключевым словам (оставляем без изменений)
   const results = [];
   for (const book of bibleData) {
     for (let i = 0; i < book.chapters.length; i++) {
@@ -486,7 +478,7 @@ bot.on('callback_query', async query => {
       const book = bibleData[bookIndex];
 
       if (chapterNumber > book.chapters.length) {
-        // Переход за пределы книги (следующая книга или конец)
+
         if (bookIndex + 1 < bibleData.length) {
           const nextBook = bibleData[bookIndex + 1];
           const keyboard = getChaptersInlineKeyboard(nextBook.name);
@@ -519,7 +511,7 @@ bot.on('callback_query', async query => {
       }
 
       const chapterText = formatChapter(book, chapterNumber);
-      // Кнопки перехода по главам
+
       const hasPrevChapter = chapterNumber > 1;
       const hasNextChapter = chapterNumber < book.chapters.length;
       let prevChapterButton = hasPrevChapter
@@ -528,7 +520,7 @@ bot.on('callback_query', async query => {
       let nextChapterButton = hasNextChapter
         ? { text: '➡️ Следующая глава', callback_data: `chapter_${bookName}_${chapterNumber + 1}` }
         : null;
-      // Клавиатура: первая строка - кнопки глав (если есть)
+
       const navRow = [];
       if (prevChapterButton) navRow.push(prevChapterButton);
       if (nextChapterButton) navRow.push(nextChapterButton);
@@ -537,7 +529,6 @@ bot.on('callback_query', async query => {
       keyboard.push([{ text: '⬅️ Назад к главам', callback_data: `book_${bookName}` }]);
       keyboard.push([{ text: '⬅️ Назад к книгам', callback_data: 'back_to_books' }]);
 
-      // Если это последняя глава книги, добавить кнопку перехода к следующей книге
       if (!hasNextChapter && bookIndex + 1 < bibleData.length) {
         const nextBook = bibleData[bookIndex + 1];
         keyboard.push([
@@ -595,7 +586,6 @@ bot.on('callback_query', async query => {
   }
 });
 
-// Daily verse
 function sendDailyVerse() {
   const verse = getRandomVerse();
   const text = `✨ *Дневное вдохновение* ✨\n\n${formatVerse(verse)}\n\n_Пусть слово Божье освещает ваш день!_`;

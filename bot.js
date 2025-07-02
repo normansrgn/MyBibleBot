@@ -22,7 +22,7 @@ try {
 }
 const bibleData = JSON.parse(raw);
 
-const newTestamentStartIndex = bibleData.findIndex(book => book.name.toLowerCase() === 'matthew');
+const newTestamentStartIndex = bibleData.findIndex(book => book.name.toLowerCase() === 'от матфея');
 const oldTestamentBooks = newTestamentStartIndex === -1 ? bibleData : bibleData.slice(0, newTestamentStartIndex);
 const newTestamentBooks = newTestamentStartIndex === -1 ? [] : bibleData.slice(newTestamentStartIndex);
 
@@ -71,7 +71,7 @@ function getRandomVerse() {
 }
 
 function formatVerse({ bookName, chapter, verse, text }) {
-  return `📖 *${bookName}* ${chapter}:${verse}\n\n_${text}_`;
+  return `_"${text}"_\n\n${bookName} ${chapter}:${verse}`;
 }
 
 function formatChapter(book, chapterNumber) {
@@ -85,53 +85,184 @@ function formatChapter(book, chapterNumber) {
   return text;
 }
 
+function normalizeBookName(name) {
+  return name.toLowerCase().replace(/\s+/g, '');
+}
+
+// Вычисляем расстояние Левенштейна
+function levenshtein(a, b) {
+  const m = a.length;
+  const n = b.length;
+  const dp = Array.from({ length: m + 1 }, () => Array(n + 1).fill(0));
+  for (let i = 0; i <= m; i++) dp[i][0] = i;
+  for (let j = 0; j <= n; j++) dp[0][j] = j;
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      dp[i][j] = Math.min(
+        dp[i - 1][j] + 1,      // удаление
+        dp[i][j - 1] + 1,      // вставка
+        dp[i - 1][j - 1] + cost // замена
+      );
+    }
+  }
+  return dp[m][n];
+}
+
+// Ищем наиболее похожее название книги
+function findClosestBookName(inputName) {
+  const normalizedInput = normalizeBookName(inputName);
+  let closestBook = null;
+  let minDistance = Infinity;
+
+  for (const book of bibleData) {
+    const normalizedBook = normalizeBookName(book.name);
+    const distance = levenshtein(normalizedInput, normalizedBook);
+    if (distance < minDistance) {
+      minDistance = distance;
+      closestBook = book;
+    }
+  }
+
+  // Условие: если расхождение не слишком большое
+  return minDistance <= 5 ? closestBook : null;
+}
+
 function searchVerse(query) {
-  const regex = /^([\w\s]+)\s+(\d+)(?::(\d+)(?:-(\d+))?)?$/i;
+  const regex = /^(\d?\s*[а-яА-ЯёЁ\s]+)\s+(\d+)(?::(\d+)(?:-(\d+))?)?$/i;
   const match = query.match(regex);
 
   if (match) {
-    const [, bookNameRaw, chapterStr, verseStr, verseEndStr] = match;
-    const bookName = bookNameRaw.trim();
+    let [, bookNameRaw, chapterStr, verseStr, verseEndStr] = match;
     const chapter = parseInt(chapterStr, 10);
     const verse = verseStr ? parseInt(verseStr, 10) : null;
     const verseEnd = verseEndStr ? parseInt(verseEndStr, 10) : null;
 
-    const book = bibleData.find(b =>
-      b.name.toLowerCase() === bookName.toLowerCase() ||
-      b.name.toLowerCase().startsWith(bookName.toLowerCase())
+    let book = bibleData.find(
+      b =>
+        normalizeBookName(b.name) === normalizeBookName(bookNameRaw) ||
+        normalizeBookName(b.name).startsWith(normalizeBookName(bookNameRaw))
     );
+
+    // Если точного совпадения нет — ищем наиболее близкое
+    if (!book) {
+      book = findClosestBookName(bookNameRaw);
+    }
+
     if (!book) return null;
 
     const chapterIndex = chapter - 1;
-    if (!book.chapters[chapterIndex]) return null;
+    const chapterData = book.chapters[chapterIndex];
+    if (!chapterData) return null;
 
     if (verse && verseEnd) {
-      const verses = book.chapters[chapterIndex].slice(verse - 1, verseEnd);
+      const verses = chapterData.slice(verse - 1, verseEnd);
       if (!verses.length) return null;
       return {
         bookName: book.name,
         chapter,
         verses: verses.map((text, i) => ({
           verse: verse + i,
-          text
+          text,
         })),
       };
     }
 
     if (verse) {
       const verseIndex = verse - 1;
-      if (!book.chapters[chapterIndex][verseIndex]) return null;
+      const text = chapterData[verseIndex];
+      if (!text) return null;
       return {
         bookName: book.name,
         chapter,
         verse,
-        text: book.chapters[chapterIndex][verseIndex],
+        text,
       };
     }
 
-    return { book, chapter };
+    return {
+      book,
+      chapter,
+    };
   }
 
+  // Поиск по ключевым словам
+  const results = [];
+  for (const book of bibleData) {
+    for (let i = 0; i < book.chapters.length; i++) {
+      const chapter = book.chapters[i];
+      for (let j = 0; j < chapter.length; j++) {
+        const verseText = chapter[j];
+        if (verseText.toLowerCase().includes(query.toLowerCase())) {
+          results.push({
+            bookName: book.name,
+            chapter: i + 1,
+            verse: j + 1,
+            text: verseText,
+          });
+          if (results.length >= 5) return results;
+        }
+      }
+    }
+  }
+
+  return results.length ? results : null;
+}
+
+function searchVerse(query) {
+  // Разрешаем цифру в начале, пробелы, затем кириллицу
+  const regex = /^(\d?\s*[а-яА-ЯёЁ\s]+)\s+(\d+)(?::(\d+)(?:-(\d+))?)?$/i;
+  const match = query.match(regex);
+
+  if (match) {
+    let [, bookNameRaw, chapterStr, verseStr, verseEndStr] = match;
+    const bookName = normalizeBookName(bookNameRaw);
+    const chapter = parseInt(chapterStr, 10);
+    const verse = verseStr ? parseInt(verseStr, 10) : null;
+    const verseEnd = verseEndStr ? parseInt(verseEndStr, 10) : null;
+
+    // Ищем книгу с нормализацией для сравнения
+    const book = bibleData.find(b => normalizeBookName(b.name) === bookName || normalizeBookName(b.name).startsWith(bookName));
+
+    if (!book) return null;
+
+    const chapterIndex = chapter - 1;
+    const chapterData = book.chapters[chapterIndex];
+    if (!chapterData) return null;
+
+    if (verse && verseEnd) {
+      const verses = chapterData.slice(verse - 1, verseEnd);
+      if (!verses.length) return null;
+      return {
+        bookName: book.name,
+        chapter,
+        verses: verses.map((text, i) => ({
+          verse: verse + i,
+          text,
+        })),
+      };
+    }
+
+    if (verse) {
+      const verseIndex = verse - 1;
+      const text = chapterData[verseIndex];
+      if (!text) return null;
+      return {
+        bookName: book.name,
+        chapter,
+        verse,
+        text,
+      };
+    }
+
+    // Только глава
+    return {
+      book: book,
+      chapter: chapter,
+    };
+  }
+
+  // Поиск по ключевым словам (оставляем без изменений)
   const results = [];
   for (const book of bibleData) {
     for (let i = 0; i < book.chapters.length; i++) {

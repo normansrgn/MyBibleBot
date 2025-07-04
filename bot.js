@@ -655,10 +655,27 @@ bot.on('inline_query', async (query) => {
       },
       description: found.text.slice(0, 100),
     });
+  } else if (found && found.verses) {
+    const versesText = found.verses
+      .map((v) => `${v.verse}. ${v.text}`)
+      .join("\n");
+    results.push({
+      type: 'article',
+      id: 'range1',
+      title: `${found.bookName} ${found.chapter}:${found.verses[0].verse}-${found.verses[found.verses.length - 1].verse}`,
+      input_message_content: {
+        message_text: `📖 *${found.bookName}* ${found.chapter}:${found.verses[0].verse}-${found.verses[found.verses.length - 1].verse}\n\n_${versesText}_`,
+        parse_mode: 'Markdown',
+      },
+      description: versesText.slice(0, 100),
+    });
   }
 
   if (results.length > 0) {
-    bot.answerInlineQuery(query.id, results.slice(0, 10));
+    bot.answerInlineQuery(query.id, results.slice(0, 10), {
+      cache_time: 0,
+      is_personal: true,
+    });
   }
 });
 

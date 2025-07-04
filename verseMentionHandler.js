@@ -1,4 +1,4 @@
-// verseMentionHandler.js
+
 
 function setupVerseMentionHandler(
   bot,

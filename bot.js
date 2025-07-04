@@ -317,6 +317,8 @@ bot.on("message", async (msg) => {
   const chatId = msg.chat.id;
   const text = msg.text;
   if (msg.chat.type !== 'private') return;
+  // отключить replyMarkup для всех не-приватных чатов (на всякий случай)
+  const isPrivate = msg.chat.type === 'private';
   activeUsers.add(chatId);
 
   try {
@@ -324,7 +326,7 @@ bot.on("message", async (msg) => {
       const verse = getRandomVerse();
       await bot.sendMessage(chatId, formatVerse(verse), {
         parse_mode: "Markdown",
-        ...mainReplyKeyboard,
+        ...(isPrivate ? mainReplyKeyboard : {}),
       });
     } else if (text === "📖 Читать Библию") {
       await bot.sendMessage(chatId, "📖 *Выберите Завет:*", {
@@ -342,14 +344,14 @@ bot.on("message", async (msg) => {
 _Вы получите до 5 наиболее подходящих результатов._`,
         {
           parse_mode: "Markdown",
-          ...mainReplyKeyboard,
+          ...(isPrivate ? mainReplyKeyboard : {}),
         }
       );
     } else if (text === "🏠 Главное меню") {
       userState.delete(chatId);
       await bot.sendMessage(chatId, getStartMessage(), {
         parse_mode: "Markdown",
-        ...mainReplyKeyboard,
+        ...(isPrivate ? mainReplyKeyboard : {}),
       });
     } else if (text === "⬅️ Назад к книгам") {
       const testament = userState.get(chatId) || "old";
@@ -376,7 +378,7 @@ _Вы получите до 5 наиболее подходящих резуль
           for (const verse of result) {
             await bot.sendMessage(chatId, formatVerse(verse), {
               parse_mode: "Markdown",
-              ...mainReplyKeyboard,
+              ...(isPrivate ? mainReplyKeyboard : {}),
             });
           }
         } else if (result.verses) {
@@ -390,18 +392,18 @@ _Вы получите до 5 наиболее подходящих резуль
           }\n\n_${versesText}_`;
           await bot.sendMessage(chatId, message, {
             parse_mode: "Markdown",
-            ...mainReplyKeyboard,
+            ...(isPrivate ? mainReplyKeyboard : {}),
           });
         } else if (result.verse) {
           await bot.sendMessage(chatId, formatVerse(result), {
             parse_mode: "Markdown",
-            ...mainReplyKeyboard,
+            ...(isPrivate ? mainReplyKeyboard : {}),
           });
         } else {
           const chapterText = formatChapter(result.book, result.chapter);
           await bot.sendMessage(chatId, chapterText, {
             parse_mode: "Markdown",
-            ...mainReplyKeyboard,
+            ...(isPrivate ? mainReplyKeyboard : {}),
           });
         }
       } else if (!["/start", "/search"].includes(text)) {
@@ -410,7 +412,7 @@ _Вы получите до 5 наиболее подходящих резуль
           '❌ Ничего не найдено. Введите, например, "Иоанна 3:16", "Бытие 1" или просто слово/фразу из стиха.',
           {
             parse_mode: "Markdown",
-            ...mainReplyKeyboard,
+            ...(isPrivate ? mainReplyKeyboard : {}),
           }
         );
       }
@@ -422,6 +424,15 @@ _Вы получите до 5 наиболее подходящих резуль
     );
     await bot.sendMessage(chatId, "Произошла ошибка. Попробуйте снова.");
   }
+});
+
+bot.onText(/\/hide/, async (msg) => {
+  const chatId = msg.chat.id;
+  await bot.sendMessage(chatId, 'Кнопки скрыты ✅', {
+    reply_markup: {
+      remove_keyboard: true,
+    },
+  });
 });
 
 bot.on("callback_query", async (query) => {

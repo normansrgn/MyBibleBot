@@ -1,8 +1,8 @@
 require("dotenv").config();
 const TelegramBot = require("node-telegram-bot-api");
+const cron = require("node-cron");
 const fs = require("fs");
 const path = require("path");
-const cron = require("node-cron");
 
 const token = process.env.BOT_TOKEN;
 if (!token) {
@@ -12,12 +12,9 @@ if (!token) {
 
 const bot = new TelegramBot(token, { polling: true });
 
-// Импорты твоих обработчиков и планировщика
 const { setupVerseMentionHandler } = require("./verseMentionHandler");
-const { handleBibleSearchCommand } = require("./bibleSearchHandler");
-const { scheduleGroupVerses } = require("./groupVerseScheduler");
+const { handleBibleSearchCommand } = require('./bibleSearchHandler');
 
-// Чтение и парсинг данных Библии
 let raw;
 try {
   raw = fs.readFileSync(path.join(__dirname, "bible.json"), "utf8");
@@ -28,84 +25,14 @@ try {
 }
 const bibleData = JSON.parse(raw);
 
-// Запуск функций с передачей bot и bibleData
-scheduleGroupVerses(bot, bibleData);
-setupVerseMentionHandler(
-  bot,
-  bibleData 
-);
-handleBibleSearchCommand(bot, bibleData);
-
-// Форматирование стиха
+// Определи функцию formatVerse раньше, или просто подключи
 function formatVerse({ bookName, chapter, verse, text }) {
   return `_"${text}"_\n\n${bookName} ${chapter}:${verse}`;
 }
 
-// Поиск стиха (упрощённо)
-function searchVerse(query) {
-  const lower = query.toLowerCase();
-  for (const book of bibleData) {
-    for (const chapter of book.chapters) {
-      for (const verse of chapter.verses) {
-        if (verse.text.toLowerCase().includes(lower)) {
-          return {
-            bookName: book.name,
-            chapter: chapter.chapter,
-            verse: verse.verse,
-            text: verse.text,
-          };
-        }
-      }
-    }
-  }
-  return null;
-}
+setupVerseMentionHandler(bot, bibleData, searchVerse, formatVerse, formatChapter);
 
-// Формат всей главы
-function formatChapter(book, chapterNumber) {
-  const chapter = book.chapters.find((ch) => ch.chapter === chapterNumber);
-  if (!chapter) return "Глава не найдена";
-
-  const versesText = chapter.verses
-    .map((v) => `${v.verse}. ${v.text}`)
-    .join("\n");
-
-  return `📖 *${book.name} ${chapterNumber}*\n\n${versesText}`;
-}
-
-// 🔹 Подключаем обработчики
-setupVerseMentionHandler(
-  bot,
-  bibleData,
-  searchVerse,
-  formatVerse,
-  formatChapter
-);
-
-//  Планировщик рассылки в группы (каждые 2 часа, днём)
-scheduleGroupVerses(
-  bot,
-  () => {
-    // возвращает случайный стих
-    const allVerses = [];
-    for (const book of bibleData) {
-      for (const chapter of book.chapters) {
-        for (const verse of chapter.verses) {
-          allVerses.push({
-            bookName: book.name,
-            chapter: chapter.chapter,
-            verse: verse.verse,
-            text: verse.text,
-          });
-        }
-      }
-    }
-    const random = allVerses[Math.floor(Math.random() * allVerses.length)];
-    return random;
-  },
-  formatVerse
-);
-
+// Теперь правильно:
 handleBibleSearchCommand(bot, bibleData, formatVerse);
 
 const newTestamentStartIndex = bibleData.findIndex(
@@ -226,6 +153,7 @@ function findClosestBookName(inputName) {
 
   return minDistance <= 5 ? closestBook : null;
 }
+
 
 function searchVerse(query) {
   const regex = /^(\d?\s*[а-яА-ЯёЁ\s]+)\s+(\d+)(?::(\d+)(?:-(\d+))?)?$/i;
@@ -397,9 +325,9 @@ _Вы получите до 5 наиболее подходящих резуль
 bot.on("message", async (msg) => {
   const chatId = msg.chat.id;
   const text = msg.text;
-  if (msg.chat.type !== "private") return;
+  if (msg.chat.type !== 'private') return;
   // отключить replyMarkup для всех не-приватных чатов (на всякий случай)
-  const isPrivate = msg.chat.type === "private";
+  const isPrivate = msg.chat.type === 'private';
   activeUsers.add(chatId);
 
   try {
@@ -507,13 +435,37 @@ _Вы получите до 5 наиболее подходящих резуль
   }
 });
 
+
 bot.onText(/\/hide/, async (msg) => {
   const chatId = msg.chat.id;
-  await bot.sendMessage(chatId, "Кнопки скрыты ✅", {
+  await bot.sendMessage(chatId, 'Кнопки скрыты ✅', {
     reply_markup: {
       remove_keyboard: true,
     },
   });
+});
+
+// Обработка события добавления новых участников в чат
+bot.on('new_chat_members', async (msg) => {
+  const chatId = msg.chat.id;
+  const newMembers = msg.new_chat_members;
+
+  for (const member of newMembers) {
+    if (member.username === (await bot.getMe()).username) {
+      await bot.sendMessage(chatId, `🌿 *Приветствую всех!* 🌿
+
+Спасибо, что добавили меня в этот чат! 🙌
+
+Чтобы использовать меня, просто напишите:
+• @${member.username} Иоанна 3:16 — и я покажу нужный стих.
+• Или отправьте фразу из Библии — я постараюсь найти подходящие места.
+
+Благословений вам! 🙏`, {
+        parse_mode: 'Markdown',
+      });
+      break;
+    }
+  }
 });
 
 bot.on("callback_query", async (query) => {
@@ -705,7 +657,7 @@ bot.on("polling_error", (err) => {
   }, 5000);
 });
 
-bot.on("inline_query", async (query) => {
+bot.on('inline_query', async (query) => {
   const q = query.query.trim();
   if (!q) return;
 
@@ -715,24 +667,24 @@ bot.on("inline_query", async (query) => {
   if (Array.isArray(found)) {
     found.forEach((verse, index) => {
       results.push({
-        type: "article",
+        type: 'article',
         id: String(index),
         title: `${verse.bookName} ${verse.chapter}:${verse.verse}`,
         input_message_content: {
           message_text: formatVerse(verse),
-          parse_mode: "Markdown",
+          parse_mode: 'Markdown',
         },
         description: verse.text.slice(0, 100),
       });
     });
   } else if (found && found.verse) {
     results.push({
-      type: "article",
-      id: "1",
+      type: 'article',
+      id: '1',
       title: `${found.bookName} ${found.chapter}:${found.verse}`,
       input_message_content: {
         message_text: formatVerse(found),
-        parse_mode: "Markdown",
+        parse_mode: 'Markdown',
       },
       description: found.text.slice(0, 100),
     });
@@ -741,16 +693,12 @@ bot.on("inline_query", async (query) => {
       .map((v) => `${v.verse}. ${v.text}`)
       .join("\n");
     results.push({
-      type: "article",
-      id: "range1",
-      title: `${found.bookName} ${found.chapter}:${found.verses[0].verse}-${
-        found.verses[found.verses.length - 1].verse
-      }`,
+      type: 'article',
+      id: 'range1',
+      title: `${found.bookName} ${found.chapter}:${found.verses[0].verse}-${found.verses[found.verses.length - 1].verse}`,
       input_message_content: {
-        message_text: `📖 *${found.bookName}* ${found.chapter}:${
-          found.verses[0].verse
-        }-${found.verses[found.verses.length - 1].verse}\n\n_${versesText}_`,
-        parse_mode: "Markdown",
+        message_text: `📖 *${found.bookName}* ${found.chapter}:${found.verses[0].verse}-${found.verses[found.verses.length - 1].verse}\n\n_${versesText}_`,
+        parse_mode: 'Markdown',
       },
       description: versesText.slice(0, 100),
     });

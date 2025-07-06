@@ -10,6 +10,8 @@ if (!token) {
   process.exit(1);
 }
 
+
+
 const bot = new TelegramBot(token, { polling: true });
 
 const { setupVerseMentionHandler } = require("./verseMentionHandler");

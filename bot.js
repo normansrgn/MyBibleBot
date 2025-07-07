@@ -12,9 +12,6 @@ if (!token) {
 
 const bot = new TelegramBot(token, { polling: true });
 
-const { setupVerseMentionHandler } = require("./verseMentionHandler");
-const { handleBibleSearchCommand } = require('./bibleSearchHandler');
-
 let raw;
 try {
   raw = fs.readFileSync(path.join(__dirname, "bible.json"), "utf8");
@@ -25,29 +22,32 @@ try {
 }
 const bibleData = JSON.parse(raw);
 
-// Определи функцию formatVerse раньше, или просто подключи
-function formatVerse({ bookName, chapter, verse, text }) {
-  return `_"${text}"_\n\n${bookName} ${chapter}:${verse}`;
-}
+// Конвертируем структуру JSON в ожидаемый формат
+const convertedBibleData = bibleData.Books.map(book => ({
+  id: book.BookId,
+  name: book.BookName,
+  chapters: book.Chapters.map(chapter => 
+    chapter.Verses.map(verse => verse.Text)
+  )
+}));
 
-setupVerseMentionHandler(bot, bibleData, searchVerse, formatVerse, formatChapter);
-
-// Теперь правильно:
-handleBibleSearchCommand(bot, bibleData, formatVerse);
-
-const newTestamentStartIndex = bibleData.findIndex(
-  (book) => book.name.toLowerCase() === "от матфея"
+// Находим начало Нового Завета
+// Новый вариант - разделение по ID книг
+// Ветхий Завет: ID 1-39, Новый Завет: ID 40-66
+const newTestamentStartIndex = convertedBibleData.findIndex(
+  (book) => book.id >= 40
 );
-const oldTestamentBooks =
-  newTestamentStartIndex === -1
-    ? bibleData
-    : bibleData.slice(0, newTestamentStartIndex);
-const newTestamentBooks =
-  newTestamentStartIndex === -1 ? [] : bibleData.slice(newTestamentStartIndex);
+const oldTestamentBooks = newTestamentStartIndex === -1
+  ? convertedBibleData
+  : convertedBibleData.slice(0, newTestamentStartIndex);
+const newTestamentBooks = newTestamentStartIndex === -1
+  ? []
+  : convertedBibleData.slice(newTestamentStartIndex);
 
 const activeUsers = new Set();
 const userState = new Map();
 
+// Клавиатуры
 const mainReplyKeyboard = {
   reply_markup: {
     keyboard: [
@@ -76,8 +76,9 @@ const testamentInlineKeyboard = {
   ],
 };
 
+// Вспомогательные функции
 function getRandomVerse() {
-  const book = bibleData[Math.floor(Math.random() * bibleData.length)];
+  const book = convertedBibleData[Math.floor(Math.random() * convertedBibleData.length)];
   const chapterIndex = Math.floor(Math.random() * book.chapters.length);
   const chapter = book.chapters[chapterIndex];
   const verseIndex = Math.floor(Math.random() * chapter.length);
@@ -142,7 +143,7 @@ function findClosestBookName(inputName) {
   let closestBook = null;
   let minDistance = Infinity;
 
-  for (const book of bibleData) {
+  for (const book of convertedBibleData) {
     const normalizedBook = normalizeBookName(book.name);
     const distance = levenshtein(normalizedInput, normalizedBook);
     if (distance < minDistance) {
@@ -153,7 +154,6 @@ function findClosestBookName(inputName) {
 
   return minDistance <= 5 ? closestBook : null;
 }
-
 
 function searchVerse(query) {
   const regex = /^(\d?\s*[а-яА-ЯёЁ\s]+)\s+(\d+)(?::(\d+)(?:-(\d+))?)?$/i;
@@ -166,15 +166,12 @@ function searchVerse(query) {
     const verse = verseStr ? parseInt(verseStr, 10) : null;
     const verseEnd = verseEndStr ? parseInt(verseEndStr, 10) : null;
 
-    let book = bibleData.find(
-      (b) =>
-        normalizeBookName(b.name) === bookName ||
+    let book = convertedBibleData.find(
+      (b) => normalizeBookName(b.name) === bookName ||
         normalizeBookName(b.name).includes(bookName)
     );
 
-    if (!book) {
-      book = findClosestBookName(bookName);
-    }
+    if (!book) book = findClosestBookName(bookName);
     if (!book) return null;
 
     const chapterIndex = chapter - 1;
@@ -206,14 +203,11 @@ function searchVerse(query) {
       };
     }
 
-    return {
-      book: book,
-      chapter: chapter,
-    };
+    return { book, chapter };
   }
 
   const results = [];
-  for (const book of bibleData) {
+  for (const book of convertedBibleData) {
     for (let i = 0; i < book.chapters.length; i++) {
       const chapter = book.chapters[i];
       for (let j = 0; j < chapter.length; j++) {
@@ -239,23 +233,32 @@ function formatChapter(book, chapterNumber) {
   return parts[0] || "Глава не найдена.";
 }
 
-function getBooksInlineKeyboard(books) {
+function getBooksInlineKeyboard(books, testament, chatId) {
+  // Сохраняем выбор завета в состоянии пользователя
+  if (testament && chatId) {
+    userState.set(chatId, testament);
+  }
+
   const keyboard = [];
-  for (let i = 0; i < books.length; i += 3) {
-    const row = books.slice(i, i + 3).map((book) => ({
+  const booksToShow = testament === "old" ? oldTestamentBooks : newTestamentBooks;
+  
+  for (let i = 0; i < booksToShow.length; i += 3) {
+    const row = booksToShow.slice(i, i + 3).map((book) => ({
       text: book.name,
       callback_data: `book_${book.name}`,
     }));
     keyboard.push(row);
   }
+  
   keyboard.push([
     { text: "⬅️ Назад к выбору Завета", callback_data: "back_to_testament" },
   ]);
+  
   return { inline_keyboard: keyboard };
 }
 
 function getChaptersInlineKeyboard(bookName) {
-  const book = bibleData.find((b) => b.name === bookName);
+  const book = convertedBibleData.find((b) => b.name === bookName);
   if (!book) return null;
   const chaptersCount = book.chapters.length;
   const keyboard = [];
@@ -275,10 +278,55 @@ function getChaptersInlineKeyboard(bookName) {
   return { inline_keyboard: keyboard };
 }
 
+function getChapterPartKeyboard(bookName, chapterNumber, partIndex, partsCount, book) {
+  const buttons = [];
+  
+  if (partsCount > 1) {
+    const navRow = [];
+    if (partIndex > 0) navRow.push({
+      text: "⬅️ Назад",
+      callback_data: `chapter_part_${bookName}_${chapterNumber}_${partIndex - 1}`,
+    });
+    navRow.push({ text: `${partIndex + 1}/${partsCount}`, callback_data: "noop" });
+    if (partIndex < partsCount - 1) navRow.push({
+      text: "Вперёд ➡️",
+      callback_data: `chapter_part_${bookName}_${chapterNumber}_${partIndex + 1}`,
+    });
+    buttons.push(navRow);
+  }
+
+  const chapterNavRow = [];
+  if (chapterNumber > 1) chapterNavRow.push({
+    text: "⬅️ Пред. глава",
+    callback_data: `chapter_${bookName}_${chapterNumber - 1}`,
+  });
+  if (chapterNumber < book.chapters.length) chapterNavRow.push({
+    text: "След. глава ➡️",
+    callback_data: `chapter_${bookName}_${chapterNumber + 1}`,
+  });
+  if (chapterNavRow.length) buttons.push(chapterNavRow);
+
+  buttons.push([{ text: "⬅️ Назад к главам", callback_data: `book_${bookName}` }]);
+  buttons.push([{ text: "⬅️ Назад к книгам", callback_data: "back_to_books" }]);
+
+  if (chapterNumber === book.chapters.length) {
+    const bookIdx = convertedBibleData.findIndex((b) => b.name === bookName);
+    if (bookIdx + 1 < convertedBibleData.length) {
+      const nextBook = convertedBibleData[bookIdx + 1];
+      buttons.push([{
+        text: `➡️ Перейти к следующей книге: ${nextBook.name}`,
+        callback_data: `book_${nextBook.name}`,
+      }]);
+    }
+  }
+  
+  return { inline_keyboard: buttons };
+}
+
 function getStartMessage() {
   return `🌿 Добро пожаловать, ищущий света! 🌿
 
-📜 “Слово Твое — светильник ноге моей и свет стезе моей.” (Псалтирь 118:105)
+📜 "Слово Твое — светильник ноге моей и свет стезе моей." (Псалтирь 118:105)
 
 Этот бот — ваш спутник в путешествии по Священному Писанию. Здесь вы можете:
 🌟 Находить вдохновение в случайных стихах
@@ -288,6 +336,7 @@ function getStartMessage() {
 Пусть ваше сердце наполнится миром! Выберите действие ниже:`;
 }
 
+// Обработчики команд
 bot.onText(/\/start/, async (msg) => {
   const chatId = msg.chat.id;
   activeUsers.add(chatId);
@@ -326,8 +375,6 @@ bot.on("message", async (msg) => {
   const chatId = msg.chat.id;
   const text = msg.text;
   if (msg.chat.type !== 'private') return;
-  // отключить replyMarkup для всех не-приватных чатов (на всякий случай)
-  const isPrivate = msg.chat.type === 'private';
   activeUsers.add(chatId);
 
   try {
@@ -335,7 +382,7 @@ bot.on("message", async (msg) => {
       const verse = getRandomVerse();
       await bot.sendMessage(chatId, formatVerse(verse), {
         parse_mode: "Markdown",
-        ...(isPrivate ? mainReplyKeyboard : {}),
+        ...mainReplyKeyboard,
       });
     } else if (text === "📖 Читать Библию") {
       await bot.sendMessage(chatId, "📖 *Выберите Завет:*", {
@@ -353,14 +400,14 @@ bot.on("message", async (msg) => {
 _Вы получите до 5 наиболее подходящих результатов._`,
         {
           parse_mode: "Markdown",
-          ...(isPrivate ? mainReplyKeyboard : {}),
+          ...mainReplyKeyboard,
         }
       );
     } else if (text === "🏠 Главное меню") {
       userState.delete(chatId);
       await bot.sendMessage(chatId, getStartMessage(), {
         parse_mode: "Markdown",
-        ...(isPrivate ? mainReplyKeyboard : {}),
+        ...mainReplyKeyboard,
       });
     } else if (text === "⬅️ Назад к книгам") {
       const testament = userState.get(chatId) || "old";
@@ -377,9 +424,7 @@ _Вы получите до 5 наиболее подходящих резуль
       );
     } else {
       const me = await bot.getMe();
-      if (text.includes(`@${me.username}`)) {
-        return; // если это упоминание бота — обрабатывается в verseMentionHandler.js
-      }
+      if (text.includes(`@${me.username}`)) return;
 
       const result = searchVerse(text);
       if (result) {
@@ -387,7 +432,7 @@ _Вы получите до 5 наиболее подходящих резуль
           for (const verse of result) {
             await bot.sendMessage(chatId, formatVerse(verse), {
               parse_mode: "Markdown",
-              ...(isPrivate ? mainReplyKeyboard : {}),
+              ...mainReplyKeyboard,
             });
           }
         } else if (result.verses) {
@@ -401,18 +446,18 @@ _Вы получите до 5 наиболее подходящих резуль
           }\n\n_${versesText}_`;
           await bot.sendMessage(chatId, message, {
             parse_mode: "Markdown",
-            ...(isPrivate ? mainReplyKeyboard : {}),
+            ...mainReplyKeyboard,
           });
         } else if (result.verse) {
           await bot.sendMessage(chatId, formatVerse(result), {
             parse_mode: "Markdown",
-            ...(isPrivate ? mainReplyKeyboard : {}),
+            ...mainReplyKeyboard,
           });
         } else {
           const chapterText = formatChapter(result.book, result.chapter);
           await bot.sendMessage(chatId, chapterText, {
             parse_mode: "Markdown",
-            ...(isPrivate ? mainReplyKeyboard : {}),
+            ...mainReplyKeyboard,
           });
         }
       } else if (!["/start", "/search"].includes(text)) {
@@ -421,7 +466,7 @@ _Вы получите до 5 наиболее подходящих резуль
           '❌ Ничего не найдено. Введите, например, "Иоанна 3:16", "Бытие 1" или просто слово/фразу из стиха.',
           {
             parse_mode: "Markdown",
-            ...(isPrivate ? mainReplyKeyboard : {}),
+            ...mainReplyKeyboard,
           }
         );
       }
@@ -435,17 +480,13 @@ _Вы получите до 5 наиболее подходящих резуль
   }
 });
 
-
 bot.onText(/\/hide/, async (msg) => {
   const chatId = msg.chat.id;
   await bot.sendMessage(chatId, 'Кнопки скрыты ✅', {
-    reply_markup: {
-      remove_keyboard: true,
-    },
+    reply_markup: { remove_keyboard: true },
   });
 });
 
-// Обработка события добавления новых участников в чат
 bot.on('new_chat_members', async (msg) => {
   const chatId = msg.chat.id;
   const newMembers = msg.new_chat_members;
@@ -491,12 +532,11 @@ bot.on("callback_query", async (query) => {
         }
       );
     } else if (data.startsWith("chapter_part_")) {
-      // Навигация по частям главы
       const partsData = data.split("_");
       const bookName = partsData[2];
       const chapterNumber = parseInt(partsData[3], 10);
       const partIndex = parseInt(partsData[4], 10);
-      const book = bibleData.find((b) => b.name === bookName);
+      const book = convertedBibleData.find((b) => b.name === bookName);
       if (!book) {
         await bot.answerCallbackQuery(query.id, { text: "Книга не найдена." });
         return;
@@ -520,20 +560,19 @@ bot.on("callback_query", async (query) => {
         reply_markup: keyboard,
       });
     } else if (data.startsWith("chapter_")) {
-      // Открытие главы (первая часть)
       const partsData = data.split("_");
       const bookName = partsData[1];
       let chapterNumber = parseInt(partsData[2], 10);
-      const bookIndex = bibleData.findIndex((b) => b.name === bookName);
+      const bookIndex = convertedBibleData.findIndex((b) => b.name === bookName);
       if (bookIndex === -1) {
         await bot.answerCallbackQuery(query.id, { text: "Книга не найдена." });
         return;
       }
-      const book = bibleData[bookIndex];
+      const book = convertedBibleData[bookIndex];
 
       if (chapterNumber > book.chapters.length) {
-        if (bookIndex + 1 < bibleData.length) {
-          const nextBook = bibleData[bookIndex + 1];
+        if (bookIndex + 1 < convertedBibleData.length) {
+          const nextBook = convertedBibleData[bookIndex + 1];
           const keyboard = getChaptersInlineKeyboard(nextBook.name);
           await bot.editMessageText(
             `Вы завершили книгу *${book.name}*.\nПереходим к следующей книге: *${nextBook.name}*.\nВыберите главу:`,
@@ -603,23 +642,23 @@ bot.on("callback_query", async (query) => {
         parse_mode: "Markdown",
         reply_markup: testamentInlineKeyboard,
       });
-    } else if (data === "testament_old") {
-      userState.set(chatId, "old");
-      await bot.editMessageText("📜 *Ветхий Завет — выберите книгу:*", {
-        chat_id: chatId,
-        message_id: messageId,
-        parse_mode: "Markdown",
-        reply_markup: getBooksInlineKeyboard(oldTestamentBooks),
-      });
-    } else if (data === "testament_new") {
-      userState.set(chatId, "new");
-      await bot.editMessageText("✝️ *Новый Завет — выберите книгу:*", {
-        chat_id: chatId,
-        message_id: messageId,
-        parse_mode: "Markdown",
-        reply_markup: getBooksInlineKeyboard(newTestamentBooks),
-      });
-    }
+ } else if (data === "testament_old") {
+  userState.set(chatId, "old");
+  await bot.editMessageText("📜 *Ветхий Завет — выберите книгу:*", {
+    chat_id: chatId,
+    message_id: messageId,
+    parse_mode: "Markdown",
+    reply_markup: getBooksInlineKeyboard(oldTestamentBooks, "old", chatId),
+  });
+} else if (data === "testament_new") {
+  userState.set(chatId, "new");
+  await bot.editMessageText("✝️ *Новый Завет — выберите книгу:*", {
+    chat_id: chatId,
+    message_id: messageId,
+    parse_mode: "Markdown",
+    reply_markup: getBooksInlineKeyboard(newTestamentBooks, "new", chatId),
+  });
+}
 
     await bot.answerCallbackQuery(query.id);
   } catch (err) {
@@ -633,6 +672,7 @@ bot.on("callback_query", async (query) => {
   }
 });
 
+// Рассылка стихов
 function sendDailyVerse() {
   const verse = getRandomVerse();
   const text = `✨ *Дневное вдохновение* ✨\n\n${formatVerse(
@@ -646,10 +686,12 @@ function sendDailyVerse() {
   });
 }
 
+// Расписание рассылки
 cron.schedule("0 9 * * *", sendDailyVerse, { timezone: "Europe/Moscow" });
 cron.schedule("0 15 * * *", sendDailyVerse, { timezone: "Europe/Moscow" });
 cron.schedule("0 21 * * *", sendDailyVerse, { timezone: "Europe/Moscow" });
 
+// Обработка ошибок polling
 bot.on("polling_error", (err) => {
   console.error("Polling error:", err.message);
   setTimeout(() => {
@@ -657,6 +699,7 @@ bot.on("polling_error", (err) => {
   }, 5000);
 });
 
+// Inline режим
 bot.on('inline_query', async (query) => {
   const q = query.query.trim();
   if (!q) return;
@@ -713,69 +756,3 @@ bot.on('inline_query', async (query) => {
 });
 
 console.log("✨ Бот запущен и готов к работе! ✨");
-
-// Клавиатура для навигации по частям главы
-function getChapterPartKeyboard(
-  bookName,
-  chapterNumber,
-  partIndex,
-  partsCount,
-  book
-) {
-  const buttons = [];
-  // Навигация по частям главы
-  if (partsCount > 1) {
-    const navRow = [];
-    if (partIndex > 0)
-      navRow.push({
-        text: "⬅️ Назад",
-        callback_data: `chapter_part_${bookName}_${chapterNumber}_${
-          partIndex - 1
-        }`,
-      });
-    navRow.push({
-      text: `${partIndex + 1}/${partsCount}`,
-      callback_data: "noop",
-    });
-    if (partIndex < partsCount - 1)
-      navRow.push({
-        text: "Вперёд ➡️",
-        callback_data: `chapter_part_${bookName}_${chapterNumber}_${
-          partIndex + 1
-        }`,
-      });
-    buttons.push(navRow);
-  }
-  // Навигация по главам
-  const chapterNavRow = [];
-  if (chapterNumber > 1)
-    chapterNavRow.push({
-      text: "⬅️ Пред. глава",
-      callback_data: `chapter_${bookName}_${chapterNumber - 1}`,
-    });
-  if (chapterNumber < book.chapters.length)
-    chapterNavRow.push({
-      text: "След. глава ➡️",
-      callback_data: `chapter_${bookName}_${chapterNumber + 1}`,
-    });
-  if (chapterNavRow.length) buttons.push(chapterNavRow);
-  // Кнопки возврата
-  buttons.push([
-    { text: "⬅️ Назад к главам", callback_data: `book_${bookName}` },
-  ]);
-  buttons.push([{ text: "⬅️ Назад к книгам", callback_data: "back_to_books" }]);
-  // Переход к следующей книге, если это последняя глава
-  if (chapterNumber === book.chapters.length) {
-    const bookIdx = bibleData.findIndex((b) => b.name === bookName);
-    if (bookIdx + 1 < bibleData.length) {
-      const nextBook = bibleData[bookIdx + 1];
-      buttons.push([
-        {
-          text: `➡️ Перейти к следующей книге: ${nextBook.name}`,
-          callback_data: `book_${nextBook.name}`,
-        },
-      ]);
-    }
-  }
-  return { inline_keyboard: buttons };
-}

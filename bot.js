@@ -445,28 +445,7 @@ bot.onText(/\/hide/, async (msg) => {
   });
 });
 
-// Обработка события добавления новых участников в чат
-bot.on('new_chat_members', async (msg) => {
-  const chatId = msg.chat.id;
-  const newMembers = msg.new_chat_members;
 
-  for (const member of newMembers) {
-    if (member.username === (await bot.getMe()).username) {
-      await bot.sendMessage(chatId, `🌿 *Приветствую всех!* 🌿
-
-Спасибо, что добавили меня в этот чат! 🙌
-
-Чтобы использовать меня, просто напишите:
-• @${member.username} Иоанна 3:16 — и я покажу нужный стих.
-• Или отправьте фразу из Библии — я постараюсь найти подходящие места.
-
-Благословений вам! 🙏`, {
-        parse_mode: 'Markdown',
-      });
-      break;
-    }
-  }
-});
 
 bot.on("callback_query", async (query) => {
   const chatId = query.message.chat.id;

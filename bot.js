@@ -447,6 +447,8 @@ bot.onText(/\/hide/, async (msg) => {
 
 
 
+
+
 bot.on("callback_query", async (query) => {
   const chatId = query.message.chat.id;
   const messageId = query.message.message_id;
@@ -614,7 +616,7 @@ bot.on("callback_query", async (query) => {
 
 function sendDailyVerse() {
   const verse = getRandomVerse();
-  const text = `✨ *Дневное вдохновение* ✨\n\n${formatVerse(
+  const text = `🌿 *Дневное вдохновение* \n\n${formatVerse(
     verse
   )}\n\n_Пусть слово Божье освещает ваш день!_`;
   activeUsers.forEach((chatId) => {

@@ -25,7 +25,7 @@ cron.schedule("0 9 * * *", () => sendDailyVerse(bot, activeUsers, bibleData), {
   scheduled: true
 });
 
-cron.schedule("15 12 * * *", () => sendDailyVerse(bot, activeUsers, bibleData), { 
+cron.schedule("00 15 * * *", () => sendDailyVerse(bot, activeUsers, bibleData), { 
   timezone: "Europe/Moscow",
   scheduled: true
 });

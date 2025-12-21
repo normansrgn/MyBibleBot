@@ -20,20 +20,20 @@ setupCallbackHandlers(bot, bibleData);
 setupInlineQueryHandlers(bot, bibleData);
 
 // Расписание отправки стихов
-cron.schedule("0 9 * * *", () => sendDailyVerse(bot, activeUsers, bibleData), { 
-  timezone: "Europe/Moscow",
-  scheduled: true
-});
+// cron.schedule("0 9 * * *", () => sendDailyVerse(bot, activeUsers, bibleData), { 
+//   timezone: "Europe/Moscow",
+//   scheduled: true
+// });
 
-cron.schedule("00 15 * * *", () => sendDailyVerse(bot, activeUsers, bibleData), { 
-  timezone: "Europe/Moscow",
-  scheduled: true
-});
+// cron.schedule("00 15 * * *", () => sendDailyVerse(bot, activeUsers, bibleData), { 
+//   timezone: "Europe/Moscow",
+//   scheduled: true
+// });
 
-cron.schedule("0 21 * * *", () => sendDailyVerse(bot, activeUsers, bibleData), { 
-  timezone: "Europe/Moscow",
-  scheduled: true
-});
+// cron.schedule("0 21 * * *", () => sendDailyVerse(bot, activeUsers, bibleData), { 
+//   timezone: "Europe/Moscow",
+//   scheduled: true
+// });
 
 bot.on("polling_error", (err) => {
   console.error("Polling error:", err.message);
